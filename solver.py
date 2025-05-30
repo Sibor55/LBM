@@ -1,6 +1,9 @@
 import numpy as np
-from matplotlib import pyplot as plt
+import os
 
+# Создаем папку для сохранения данных
+if not os.path.exists('curl_data'):
+    os.makedirs('curl_data')
 # Частота визуализации (каждые 30 итераций)
 plot_every = 30
 
@@ -39,7 +42,9 @@ def main():
 
     # Предвычисленные индексы для отражения частиц (bounce-back)
     bounce_indices = np.array([0, 5, 6, 7, 8, 1, 2, 3, 4])
-
+    
+    frame_count = 0
+    
     # Главный цикл симуляции
     for it in range(Nt):
         # Вывод прогресса каждые 100 итераций
@@ -90,7 +95,8 @@ def main():
         # Этап столкновений (collision)
         # Релаксация к равновесному состоянию
         F += - (1/tau) * (F - Feq)
-
+        
+        
         # Визуализация завихренности
         if it % plot_every == 0:
             # Вычисление частных производных для ротора (curl)
@@ -100,15 +106,13 @@ def main():
             dfxdy = uy[1:-1, 2:] - uy[1:-1, 0:-2]
             # Ротор (curl) = d(uy)/dx - d(ux)/dy
             curl = dfydx - dfxdy
-            
-            # Визуализация завихренности
-            # cmap="bwr": сине-бело-красная цветовая схема
-            plt.imshow(curl, cmap="bwr", vmin=-0.1, vmax=0.1)
-            plt.title(f"Завихренность (Итерация {it})")
-            plt.pause(0.001)
-            plt.clf()  # Очистка рисунка для следующего кадра
 
-    plt.show()
+            
+            # Сохраняем массив завихренности в файл
+            np.save(f'curl_data/curl_frame_{frame_count:04d}.npy', curl)
+            frame_count += 1
+
+    print(f"Симуляция завершена. Сохранено {frame_count} кадров.")
 
 if __name__ == "__main__":
     main()

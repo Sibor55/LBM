@@ -1,91 +1,114 @@
 import numpy as np
-import matplotlib.pyplot as plt
+from matplotlib import pyplot as plt
 
-# Конфигурационные параметры
-PLOT_EVERY = 10  # Частота визуализации
-SIMULATION_STEPS = 3000  # Количество шагов симуляции
-
-# Параметры решетки
-GRID_WIDTH = 400    # Ширина расчетной области
-GRID_HEIGHT = 100   # Высота расчетной области
-RELAXATION_TIME = 0.53  # Время релаксации
-
-# Параметры цилиндра
-CYLINDER_RADIUS = 13
-CYLINDER_CENTER_X = GRID_WIDTH // 4
-CYLINDER_CENTER_Y = GRID_HEIGHT // 2
-
-def calculate_distance(x1, y1, x2, y2):
-    """Вычисляет евклидово расстояние между двумя точками"""
-    return np.sqrt((x2 - x1)**2 + (y2 - y1)**2)
+# Частота визуализации (каждые 30 итераций)
+plot_every = 30
 
 def main():
-    # Инициализация модели D2Q9
-    num_directions = 9
-    direction_x = np.array([0, 0, 1, 1, 1, 0, -1, -1, -1])  # Компоненты скорости по X
-    direction_y = np.array([0, 1, 1, 0, -1, -1, -1, 0, 1])  # Компоненты скорости по Y
-    weights = np.array([  # Весовые коэффициенты
-        4/9,  # Нулевая скорость
-        1/9, 1/36, 1/9, 1/36, 1/9, 1/36, 1/9, 1/36  # Остальные направления
-    ])
-    
-    # Инициализация распределений
-    particle_dist = np.ones((GRID_HEIGHT, GRID_WIDTH, num_directions)) + 0.01 * np.random.randn(
-        GRID_HEIGHT, GRID_WIDTH, num_directions)
-    particle_dist[:, :, 3] = 2.3  # Начальное условие для скорости
-    
-    # Создание маски для цилиндра
-    x_coords, y_coords = np.meshgrid(np.arange(GRID_WIDTH), np.arange(GRID_HEIGHT))
-    cylinder_mask = calculate_distance(CYLINDER_CENTER_X, CYLINDER_CENTER_Y, 
-                                      x_coords, y_coords) < CYLINDER_RADIUS
+    # Размеры сетки: nx - ширина, ny - высота
+    nx, ny = 300, 100
+    # Время релаксации (влияет на вязкость жидкости)
+    tau = 0.53
+    # Общее количество итераций
+    Nt = 3000
 
-    # Основной цикл симуляции
-    for step in range(SIMULATION_STEPS):
-        # Фаза переноса (streaming)
-        for i, (dx, dy) in enumerate(zip(direction_x, direction_y)):
-            particle_dist[:, :, i] = np.roll(
-                particle_dist[:, :, i],
-                shift=(dx, dy),
-                axis=(1, 0)
-            )
+    # Параметры решетки D2Q9 (9 направлений)
+    NL = 9
+    # Скорости по x для каждого направления
+    cxs = np.array([0, 0, 1, 1, 1, 0, -1, -1, -1])
+    # Скорости по y для каждого направления
+    cys = np.array([0, 1, 1, 0, -1, -1, -1, 0, 1])
+    # Веса для каждого направления
+    weights = np.array([4/9, 1/9, 1/36, 1/9, 1/36, 1/9, 1/36, 1/9, 1/36])
+    
+    # Инициализация функции распределения
+    # np.random.randn: генерация случайных чисел с нормальным распределением
+    # Создается 3D-массив размером [ny, nx, NL] со случайными возмущениями
+    F = np.ones((ny, nx, NL)) + 0.01 * np.random.randn(ny, nx, NL)
+    # Задаем начальное преимущественное направление течения (вправо)
+    F[:, :, 3] = 2.3
+    
+    # Создание препятствия (цилиндра)
+    # np.meshgrid: создание координатных сеток
+    x, y = np.meshgrid(np.arange(nx), np.arange(ny))
+    # Центр цилиндра
+    cx, cy = nx // 4, ny // 2
+    # Создание булевой маски цилиндра (True внутри круга)
+    # np.square: возведение в квадрат, результат - массив той же формы
+    cylinder = np.square(x - cx) + np.square(y - cy) < 169  # 13^2=169
+
+    # Предвычисленные индексы для отражения частиц (bounce-back)
+    bounce_indices = np.array([0, 5, 6, 7, 8, 1, 2, 3, 4])
+
+    # Главный цикл симуляции
+    for it in range(Nt):
+        # Вывод прогресса каждые 100 итераций
+        if it % 100 == 0:
+            print(f"Итерация: {it}/{Nt}")
         
-        # Обработка граничных условий на цилиндре (bounce-back)
-        boundary_dist = particle_dist[cylinder_mask, :]
-        particle_dist[cylinder_mask, :] = boundary_dist[:, [0, 5, 6, 7, 8, 1, 2, 3, 4]]
+        # Граничные условия (фиксированное давление)
+        # Правая граница: отражение для частиц, идущих влево
+        F[:, -1, [6, 7, 8]] = F[:, -2, [6, 7, 8]]
+        # Левая граница: отражение для частиц, идущих вправо
+        F[:, 0, [2, 3, 4]] = F[:, 1, [2, 3, 4]]
         
-        # Расчет макроскопических величин
-        density = np.sum(particle_dist, axis=2)
-        velocity_x = np.sum(particle_dist * direction_x, axis=2) / density
-        velocity_y = np.sum(particle_dist * direction_y, axis=2) / density
+        # Этап переноса (streaming)
+        for i in range(NL):
+            # np.roll: циклический сдвиг массива вдоль оси 1 (x)
+            # shift=cxs[i]: величина сдвига зависит от направления скорости
+            F[:, :, i] = np.roll(F[:, :, i], shift=cxs[i], axis=1)
+            # Сдвиг вдоль оси 0 (y)
+            F[:, :, i] = np.roll(F[:, :, i], shift=cys[i], axis=0)
         
-        # Обнуление скорости внутри цилиндра
-        velocity_x[cylinder_mask] = 0
-        velocity_y[cylinder_mask] = 0
+        # Вычисление макроскопических величин
+        # Плотность: сумма по всем направлениям (axis=2)
+        # np.sum: суммирование элементов массива
+        rho = np.sum(F, axis=2)
+        # Скорость по x: взвешенная сумма cxs
+        # F * cxs: поэлементное умножение (broadcasting)
+        ux = np.sum(F * cxs, axis=2) / rho
+        # Скорость по y: взвешенная сумма cys
+        uy = np.sum(F * cys, axis=2) / rho
         
-        # Фаза столкновений (collision)
-        equilibrium = np.zeros_like(particle_dist)
-        for i, (dx, dy, w) in enumerate(zip(direction_x, direction_y, weights)):
-            dot_product = dx * velocity_x + dy * velocity_y
-            velocity_sq = velocity_x**2 + velocity_y**2
-            equilibrium[:, :, i] = density * w * (
-                1 + 
-                3 * dot_product + 
-                9/2 * dot_product**2 - 
-                3/2 * velocity_sq
-            )
+        # Обработка столкновений с препятствием (bounce-back)
+        # F[cylinder]: выбор всех элементов, где cylinder=True
+        # Применяем перестановку направлений для отражения
+        F[cylinder] = F[cylinder][:, bounce_indices]
         
-        # Обновление распределения
-        particle_dist += -(1.0 / RELAXATION_TIME) * (particle_dist - equilibrium)
+        # Обнуление скорости внутри препятствия
+        ux[cylinder] = 0
+        uy[cylinder] = 0
+
+        # Вычисление равновесной функции распределения
+        Feq = np.zeros_like(F)  # Создание массива нулей той же формы, что и F
+        for i in range(NL):
+            # Скалярное произведение скорости частицы и макроскопической скорости
+            cu = cxs[i] * ux + cys[i] * uy
+            # Формула равновесного распределения
+            Feq[:, :, i] = rho * weights[i] * (1 + 3 * cu + 4.5 * np.square(cu) - 1.5 * (np.square(ux) + np.square(uy)))
         
-        # Визуализация
-        if step % PLOT_EVERY == 0:
-            plt.imshow(np.sqrt(velocity_x**2 + velocity_y**2), 
-                      cmap='jet', 
-                      vmin=0, 
-                      vmax=0.15)
-            plt.title(f"Шаг симуляции: {step}")
+        # Этап столкновений (collision)
+        # Релаксация к равновесному состоянию
+        F += - (1/tau) * (F - Feq)
+
+        # Визуализация завихренности
+        if it % plot_every == 0:
+            # Вычисление частных производных для ротора (curl)
+            # dfydx = d(uy)/dx (разность по x)
+            dfydx = ux[2:, 1:-1] - ux[0:-2, 1:-1]
+            # dfxdy = d(ux)/dy (разность по y)
+            dfxdy = uy[1:-1, 2:] - uy[1:-1, 0:-2]
+            # Ротор (curl) = d(uy)/dx - d(ux)/dy
+            curl = dfydx - dfxdy
+            
+            # Визуализация завихренности
+            # cmap="bwr": сине-бело-красная цветовая схема
+            plt.imshow(curl, cmap="bwr", vmin=-0.1, vmax=0.1)
+            plt.title(f"Завихренность (Итерация {it})")
             plt.pause(0.001)
-            plt.cla()
+            plt.clf()  # Очистка рисунка для следующего кадра
+
+    plt.show()
 
 if __name__ == "__main__":
     main()

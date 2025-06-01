@@ -2,6 +2,10 @@
 
 This project implements a 2D fluid flow simulation using the Lattice Boltzmann Method (D2Q9 scheme) with an obstacle (cylinder). The simulation generates vorticity data which can be visualized as an animation.
 
+
+https://github.com/user-attachments/assets/a3489993-6956-425e-b973-cfc025263a95
+
+
 ## Requirements
 - Python 3.x
 - NumPy
